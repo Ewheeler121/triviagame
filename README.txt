@@ -25,6 +25,6 @@ This was the byproduct of an attempt to learn C a bit more, so hopefully it's
 not complete crap.
 
 To compile the game, simply run:
-`gcc -Wall trivia.c -o trivia`
+	gcc -Wall trivia.c -o trivia
 
 Have fun! :)
