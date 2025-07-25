@@ -1,100 +1,111 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
+#include <strings.h>
 #include <time.h>
 
-#define MAX_QUESTIONS 100
-#define MAX_LINE 500
+#define QUESTION_FILE "questions.txt"
+#define ANSWER_FILE "answers.txt"
+#define INITIAL_BUFFER_SIZE 4
 
-char *questions[MAX_QUESTIONS];
-char *answers[MAX_QUESTIONS];
-int question_count = 0;
-
-void load_file(const char *filename, char *array[], int *count) {
-	FILE *file = fopen(filename, "r");
-	if (!file) {
-		perror(filename);
-		exit (1);
-	}
-
-	char buffer[MAX_LINE];
-	while (fgets(buffer, sizeof(buffer), file)) {
-		buffer[strcspn(buffer, "\n")] = '\0';
-		array[*count] = malloc(strlen(buffer) + 1);
-		strcpy(array[*count], buffer);
-		(*count)++;
-	}
-
-	fclose(file);
+void free_trivia_list(char **arr, int size) {
+    if(arr != NULL) {
+        for(int i = 0; i < size; i++) {
+            free(arr[i]);
+        }
+        free(arr);
+    }
 }
 
-void free_memory(char *array[], int count) {
-	for (int i = 0; i < count; i++) {
-		free(array[i]);
-	}
+int read_trivia_file(const char *filename, char ***storage) {
+    int size = 0, capacity = INITIAL_BUFFER_SIZE;
+    size_t length;
+    char *buffer = NULL, **temp_storage, **t;
+    FILE *file;
+
+    if((file = fopen(filename, "r")) == NULL) {
+        return -1;
+    }
+    
+    temp_storage = malloc(sizeof(char *) * INITIAL_BUFFER_SIZE);
+    while(getline(&buffer, &length, file) > 0) {
+        if(size + 1 >= capacity) {
+            capacity *= 2;
+            t = realloc(temp_storage, sizeof(char *) * capacity);
+            if(t == NULL) {
+                //if this happens, then your FUCKED
+                goto error;
+            }
+            temp_storage = t;
+        }
+        temp_storage[size++] = buffer;
+        buffer = NULL;
+    }
+    
+    fclose(file);
+    *storage = temp_storage;
+    return size;
+error:
+    for(int i = 0; i < size; i++) {
+        free(temp_storage[i]);
+    }
+    free(temp_storage);
+    fclose(file);
+    return -1;
 }
 
 int main() {
-	srand(time(NULL));
+    srand(time(NULL));
+    char **questions, **answers;
+    int s, score = 0, size = 0;
 
-	// This little bit here loads the questions and answers
-	load_file("questions.txt", questions, &question_count);
-	int answer_count = 0;
-	load_file("answers.txt", answers, &answer_count);
+    if((size = read_trivia_file(QUESTION_FILE, &questions)) < 0) {
+        fprintf(stderr, "ERROR: Incorrect file format\n");
+        return -1;
+    }
+    
+    if((s = read_trivia_file(ANSWER_FILE, &answers)) != size) {
+        fprintf(stderr, "ERROR: Incorrect file format\n");
+        free_trivia_list(questions, size);
+        free_trivia_list(answers, s);
+        return -1;
+    }
 
-	if (question_count != answer_count) {
-		fprintf(stderr, "Mismatch between the number of questions and answers - please fix this!\n");
-		return 1;
-	}
+    int indices[size];
+    for(int i = 0; i < size; i++) {
+        indices[i] = i;
+    }
 
-	// Random question order
-	int indices[MAX_QUESTIONS];
-	for (int i = 0; i < question_count; i++) {
-		indices[i] = i;
-	}
+    //Fisher-Yates algorithm (No buffer for Swap????)
+    for(int z, i = size - 1; i > 0; i--) {
+        if((z = rand() % (i + 1)) != i) {
+            indices[i] ^= indices[z];
+            indices[z] ^= indices[i];
+            indices[i] ^= indices[z];
+        }
+    }
 
-	//Shuffle the indices using the Fisher-Yates algorithm
-	for (int i = question_count -1; i > 0; i--) {
-		int z = rand() % (i + 1);
-		int temp = indices[i];
-		indices[i] = indices[z];
-		indices[z] = temp;
-	}
+    char *buffer = NULL;
+    size_t l;
+    for(int i = 0; i < size; i++) {
+        int index = indices[i];
+        printf("Q%d: %s", i + 1, questions[index]);
+        if(getline(&buffer, &l, stdin) < 0) {
+            break;
+        }
+        if(!strcasecmp(answers[index], buffer)) {
+            printf("Correct!\n");
+            score++;
+        } else {
+            printf("Wrong - the correct awnser: %s", answers[index]);
+        }
 
-	int score = 0;
-	char user_input[MAX_LINE];
+        free(buffer);
+        buffer = NULL;
+    }
 
-	for (int i = 0; i < question_count; i++) {
-		int q_idx = indices[i];
-		printf("Q%d: %s\n> ", i + 1, questions[q_idx]);
-		fgets(user_input, sizeof(user_input), stdin);
-		user_input[strcspn(user_input, "\n")] = '\0';
+    printf("Your final score is... %d/%d\n", score, size);
 
-		// Bonus question
-		if (strcasecmp(questions[q_idx], "What is the air-speed velocity of an unladen swallow ???") == 0) {
-			if (strcasecmp(user_input, "African or European?") == 0) {
-				printf("I don't know that! *gets cast into the Gorge of Eternal Peril*\n");
-				printf("You win the game! You may continue your quest for the Holy Grail!\n");
-				break;
-			} else {
-				printf("Wrong! You were cast into the Gorge of Eternal Peril - try the next question.\n");
-				continue;
-			}
-		}
-
-		// All other questions
-		if (strcasecmp(user_input, answers[q_idx]) == 0) {
-			printf("Correct!\n");
-			score++;
-		} else {
-			printf("Wrong - the correct answer: %s\n", answers[q_idx]);
-		}
-	}
-
-	printf("\nYour final score is... %d/%d\n", score, question_count);
-
-	free_memory(questions, question_count);
-	free_memory(answers, answer_count);
-
-	return 0;
+    free_trivia_list(questions, size);
+    free_trivia_list(answers, size);
+    return 0;
 }
